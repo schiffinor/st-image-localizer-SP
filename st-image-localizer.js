@@ -62,13 +62,63 @@ async function init(router) {
             // Make sure target directory exists
             fs.mkdirSync(path.dirname(absTo), { recursive: true });
 
-            // Move (rename) the file
-            fs.renameSync(absFrom, absTo);
+            const getNextAvailable = (posixPath) => {
+                const ext = path.posix.extname(posixPath);
+                const base = path.posix.basename(posixPath, ext);
+                const startNum = Number.parseInt(base, 10);
+                if (!Number.isFinite(startNum)) return null;
 
-            console.info(`[st-image-localizer] Moved file: ${from} -> ${to}`);
+                const dir = path.posix.dirname(posixPath);
+                let nextNum = startNum;
+                let nextPosix = posixPath;
+                let nextAbs = absTo;
+
+                while (fs.existsSync(nextAbs)) {
+                    nextNum += 1;
+                    nextPosix = path.posix.join(dir, `${nextNum}${ext}`);
+                    nextAbs = path.join(rootDir, "../../public/", nextPosix.replace(/^\//, ""));
+                }
+
+                return { nextPosix, nextAbs };
+            };
+
+            const filesAreSame = (a, b) => {
+                try {
+                    const statA = fs.statSync(a);
+                    const statB = fs.statSync(b);
+                    if (statA.size !== statB.size) return false;
+                    const bufA = fs.readFileSync(a);
+                    const bufB = fs.readFileSync(b);
+                    return Buffer.compare(bufA, bufB) === 0;
+                } catch {
+                    return false;
+                }
+            };
+
+            let finalAbsTo = absTo;
+            let finalTo = to;
+
+            if (fs.existsSync(absTo)) {
+                if (filesAreSame(absFrom, absTo)) {
+                    fs.unlinkSync(absFrom);
+                    console.info(`[st-image-localizer] File already exists (identical): ${finalTo}`);
+                    return res.send({ moved: true, path: finalTo });
+                }
+
+                const next = getNextAvailable(to);
+                if (next) {
+                    finalAbsTo = next.nextAbs;
+                    finalTo = next.nextPosix;
+                }
+            }
+
+            // Move (rename) the file
+            fs.renameSync(absFrom, finalAbsTo);
+
+            console.info(`[st-image-localizer] Moved file: ${from} -> ${finalTo}`);
 
             // Just echo back the client-visible path we were asked to use.
-            return res.send({ moved: true, path: to });
+            return res.send({ moved: true, path: finalTo });
         } catch (err) {
             console.error('[st-image-localizer] move-image error:', err);
             return res.sendStatus(500);
