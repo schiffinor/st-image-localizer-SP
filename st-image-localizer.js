@@ -17,11 +17,17 @@ async function init(router) {
     // Body: { from: "/user/files/char_0.png", to: "/user/images/Char/0.png" }
     router.post('/move-image', async (req, res) => {
         try {
-            const { from, to } = req.body || {};
+            let { from, to } = req.body || {};
 
             if (typeof from !== 'string' || typeof to !== 'string') {
                 return res.status(400).send('Missing or invalid "from" / "to"');
             }
+
+            // Collapse accidental duplicate slashes (e.g. "/user/images/Char//0.png")
+            // while preserving any leading slash, so they don't leak into the card.
+            const dedupeSlashes = (p) => p.replace(/\/{2,}/g, '/');
+            from = dedupeSlashes(from);
+            to = dedupeSlashes(to);
 
             // Basic sanity
             if (!from.startsWith('/user/files/')) {
